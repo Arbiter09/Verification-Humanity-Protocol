@@ -45,8 +45,8 @@ In Web3, verifying and issuing **trustless credentials** is crucial. Instead of 
 ### 1️⃣ **Clone the Repository**
 
 ```bash
-git clone https://github.com/yourusername/humanity-protocol-discord-bot.git
-cd humanity-protocol-discord-bot
+git clone https://github.com/Arbiter09/Verification-Humanity-Protocol.git
+cd Verification-Humanity-Protocol
 ```
 
 ### 2️⃣ **Install Dependencies**
