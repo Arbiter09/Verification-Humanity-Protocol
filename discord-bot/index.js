@@ -14,7 +14,7 @@ dotenv.config();
 // Create a new Discord client instance
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// Define slash commands for issuing credentials and checking verification
+// Define slash commands for issuing, checking verification, revoking, and getting credential details
 const commands = [
   new SlashCommandBuilder()
     .setName("issuecredential")
@@ -39,6 +39,34 @@ const commands = [
     .setDescription(
       "Check if the given address is verified on Humanity Protocol"
     )
+    .addStringOption((option) =>
+      option
+        .setName("address")
+        .setDescription("The Ethereum address (or DID) to check")
+        .setRequired(true)
+    )
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("revokecredential")
+    .setDescription("Revoke a credential for a given Ethereum address")
+    .addStringOption((option) =>
+      option
+        .setName("address")
+        .setDescription(
+          "The Ethereum address (or DID) to revoke the credential from"
+        )
+        .setRequired(true)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("credential")
+        .setDescription("The type of credential to revoke (e.g., music_artist)")
+        .setRequired(true)
+    )
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("credentialcount")
+    .setDescription("Get credential details (count and types) for an address")
     .addStringOption((option) =>
       option
         .setName("address")
@@ -72,20 +100,16 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "issuecredential") {
-    await interaction.deferReply(); // Defer the reply if processing takes time
-
-    // Get the command options
+    await interaction.deferReply();
     const address = interaction.options.getString("address");
     const credential = interaction.options.getString("credential");
 
     try {
-      // Call your backend API to issue the credential
       const response = await axios.post(process.env.BACKEND_URL, {
         subject_address: address,
         credentialType: credential,
       });
       const result = response.data;
-
       if (result.txHash && result.txHash !== "Credential already issued") {
         await interaction.editReply(
           `Credential issued successfully. Transaction hash: ${result.txHash}`
@@ -108,11 +132,9 @@ client.on("interactionCreate", async (interaction) => {
     }
   } else if (interaction.commandName === "checkverification") {
     await interaction.deferReply();
-
     const address = interaction.options.getString("address");
 
     try {
-      // Use BACKEND_CHECK_URL if provided, otherwise default to localhost endpoint.
       const backendCheckUrl =
         process.env.BACKEND_CHECK_URL ||
         "http://localhost:3000/api/check-verification";
@@ -120,7 +142,6 @@ client.on("interactionCreate", async (interaction) => {
         subject_address: address,
       });
       const result = response.data;
-
       if (result.verified) {
         await interaction.editReply(
           `The address ${address} is verified on Humanity Protocol.`
@@ -133,7 +154,58 @@ client.on("interactionCreate", async (interaction) => {
     } catch (error) {
       console.error("Error checking verification:", error);
       await interaction.editReply(
-        "There was an error checking the verification. Please try again later."
+        "There was an error checking verification. Please try again later."
+      );
+    }
+  } else if (interaction.commandName === "revokecredential") {
+    await interaction.deferReply();
+    const address = interaction.options.getString("address");
+    const credential = interaction.options.getString("credential");
+
+    try {
+      const backendRevokeUrl =
+        process.env.BACKEND_REVOKE_URL ||
+        "http://localhost:3000/api/revoke-credential";
+      const response = await axios.post(backendRevokeUrl, {
+        subject_address: address,
+        credentialType: credential,
+      });
+      const result = response.data;
+      if (result.txHash) {
+        await interaction.editReply(
+          `Credential revoked successfully. Transaction hash: ${result.txHash}`
+        );
+      } else {
+        await interaction.editReply(`Result: ${JSON.stringify(result)}`);
+      }
+    } catch (error) {
+      console.error("Error revoking credential:", error);
+      await interaction.editReply(
+        "There was an error revoking the credential. Please try again later."
+      );
+    }
+  } else if (interaction.commandName === "credentialcount") {
+    await interaction.deferReply();
+    const address = interaction.options.getString("address");
+
+    try {
+      const backendCountUrl =
+        process.env.BACKEND_COUNT_URL ||
+        "http://localhost:3000/api/credential-details";
+      const response = await axios.post(backendCountUrl, {
+        subject_address: address,
+      });
+      const result = response.data;
+      // result is expected to have { count, types }
+      await interaction.editReply(
+        `The address ${address} has ${
+          result.count
+        } credential(s): ${result.types.join(", ")}`
+      );
+    } catch (error) {
+      console.error("Error getting credential details:", error);
+      await interaction.editReply(
+        "There was an error getting the credential details. Please try again later."
       );
     }
   }

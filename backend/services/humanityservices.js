@@ -1,33 +1,32 @@
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
-
 import fetch from "node-fetch";
 import { ethers } from "ethers";
 import dotenv from "dotenv";
 
 dotenv.config();
 
-// Import the contract ABI using require
+// Import the contract ABI using require.
 const contractABI = require("../contractABI.json");
 
-// Set the chainId from your environment or default to 1942999413
+// Set the chainId from your environment or default to 1942999413.
 const chainId = process.env.CHAIN_ID
   ? Number(process.env.CHAIN_ID)
   : 1942999413;
 
-// Create a provider with custom network settings
+// Create a provider with custom network settings.
 const provider = new ethers.JsonRpcProvider(process.env.HUMANITY_RPC_URL, {
   chainId,
   name: "custom",
   ensAddress: null,
 });
 
-// Override ENS-related methods to disable ENS resolution
+// Override ENS-related methods to disable ENS resolution.
 provider.getNetwork = async () => ({
   chainId,
   name: "custom",
   ensAddress: null,
-  getPlugin: () => undefined, // Dummy implementation to satisfy ethers v6
+  getPlugin: () => undefined,
 });
 provider.getEnsAddress = async (_name) => null;
 provider.resolveName = async (_name) => null;
@@ -35,7 +34,7 @@ provider.lookupAddress = async (_address) => null;
 
 const signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
-// Create an instance of your MusicDistribution contract
+// Create an instance of your MusicDistribution contract.
 const musicContract = new ethers.Contract(
   process.env.CONTRACT_ADDRESS,
   contractABI,
@@ -43,7 +42,7 @@ const musicContract = new ethers.Contract(
 );
 
 /**
- * Issues a credential by calling Humanity's API and then returning the response.
+ * Issues a credential by calling Humanity's API and returns the response.
  */
 export const issueCredential = async (subject_address, credentialType) => {
   try {
@@ -81,11 +80,9 @@ export const markCredentialOnChain = async (
   credentialType
 ) => {
   try {
-    // Convert the credential type string to a bytes32 value using ethers.encodeBytes32String (ethers v6)
     const credentialKey = ethers.encodeBytes32String(credentialType);
     console.log("Converted credential key:", credentialKey);
 
-    // Pre-check: Verify if this credential has already been issued.
     const alreadyIssued = await musicContract.hasCredential(
       subject_address,
       credentialKey
@@ -99,7 +96,6 @@ export const markCredentialOnChain = async (
     }
     console.log("HUMANITY_RPC_URL:", process.env.HUMANITY_RPC_URL);
 
-    // Send the transaction with a gas limit override if needed.
     const tx = await musicContract.markCredentialIssued(
       subject_address,
       credentialKey,
@@ -116,12 +112,11 @@ export const markCredentialOnChain = async (
 
 /**
  * Checks if the given address is verified on Humanity Protocol.
- * This uses a minimal ABI to call the isVerified function on the IVC contract.
+ * Uses a minimal ABI to call the isVerified function on the IVC contract.
  */
 const vcContractABI = [
   "function isVerified(address _user) view returns (bool)",
 ];
-
 const vcContract = new ethers.Contract(
   process.env.VC_CONTRACT_ADDRESS,
   vcContractABI,
@@ -138,3 +133,59 @@ export const checkVerification = async (subject_address) => {
     throw error;
   }
 };
+
+/**
+ * Revokes a credential on-chain.
+ */
+export const revokeCredentialOnChain = async (
+  subject_address,
+  credentialType
+) => {
+  try {
+    const credentialKey = ethers.encodeBytes32String(credentialType);
+    console.log("Converted credential key:", credentialKey);
+
+    const alreadyIssued = await musicContract.hasCredential(
+      subject_address,
+      credentialKey
+    );
+    if (!alreadyIssued) {
+      throw new Error("Credential not issued");
+    }
+
+    const tx = await musicContract.revokeCredential(
+      subject_address,
+      credentialKey,
+      { gasLimit: 300000 }
+    );
+    await tx.wait();
+    console.log("Credential revoked successfully, tx hash:", tx.hash);
+    return tx.hash;
+  } catch (error) {
+    console.error("Error revoking credential on-chain:", error);
+    throw error;
+  }
+};
+
+/**
+ * Gets the total number of credentials and the list of credential types for an address.
+ * Converts each stored bytes32 credential back to a string.
+ */
+export const getCredentialDetails = async (subject_address) => {
+  try {
+    const count = await musicContract.getCredentialCount(subject_address);
+    const typesBytes32 = await musicContract.getCredentialTypes(
+      subject_address
+    );
+    // In ethers v6, use ethers.parseBytes32String instead of ethers.utils.parseBytes32String.
+    const types = typesBytes32.map((b) => ethers.decodeBytes32String(b));
+    console.log("Credential count for", subject_address, ":", count.toString());
+    console.log("Credential types for", subject_address, ":", types);
+    return { count: count.toString(), types };
+  } catch (error) {
+    console.error("Error getting credential details:", error);
+    throw error;
+  }
+};
+
+export { musicContract };

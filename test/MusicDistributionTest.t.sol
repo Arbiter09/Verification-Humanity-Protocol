@@ -80,4 +80,28 @@ contract MusicDistributionTest is Test {
         vm.expectRevert("Credential already issued");
         musicDist.markCredentialIssued(otherArtist, testCredential);
     }
+
+    /// @notice Test that a credential can be revoked by the owner.
+    function testRevokeCredential() public {
+        bytes32 testCredential = stringToBytes32("test");
+
+        // Issue a credential to otherArtist.
+        musicDist.markCredentialIssued(otherArtist, testCredential);
+        bool hasCred = musicDist.hasCredential(otherArtist, testCredential);
+        assertTrue(hasCred, "Credential should be issued initially");
+
+        // Revoke the credential (owner is address(this))
+        musicDist.revokeCredential(otherArtist, testCredential);
+
+        bool stillHasCred = musicDist.hasCredential(otherArtist, testCredential);
+        assertTrue(!stillHasCred, "Credential should be revoked");
+    }
+
+    /// @notice Test that revoking a credential that has not been issued reverts.
+    function testRevokeNonIssuedCredentialReverts() public {
+        bytes32 testCredential = stringToBytes32("test");
+
+        vm.expectRevert("Credential not issued");
+        musicDist.revokeCredential(otherArtist, testCredential);
+    }
 }
