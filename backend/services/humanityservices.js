@@ -23,7 +23,6 @@ const provider = new ethers.JsonRpcProvider(process.env.HUMANITY_RPC_URL, {
 });
 
 // Override ENS-related methods to disable ENS resolution
-// Instead of completely replacing getNetwork, we now return an object with a dummy getPlugin
 provider.getNetwork = async () => ({
   chainId,
   name: "custom",
@@ -36,13 +35,16 @@ provider.lookupAddress = async (_address) => null;
 
 const signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
-// Ensure that process.env.CONTRACT_ADDRESS is a valid Ethereum address
+// Create an instance of your MusicDistribution contract
 const musicContract = new ethers.Contract(
   process.env.CONTRACT_ADDRESS,
   contractABI,
   signer
 );
 
+/**
+ * Issues a credential by calling Humanity's API and then returning the response.
+ */
 export const issueCredential = async (subject_address, credentialType) => {
   try {
     const response = await fetch(
@@ -71,6 +73,9 @@ export const issueCredential = async (subject_address, credentialType) => {
   }
 };
 
+/**
+ * Marks the credential as issued on-chain.
+ */
 export const markCredentialOnChain = async (
   subject_address,
   credentialType
@@ -105,6 +110,31 @@ export const markCredentialOnChain = async (
     return tx.hash;
   } catch (error) {
     console.error("Error marking credential on-chain:", error);
+    throw error;
+  }
+};
+
+/**
+ * Checks if the given address is verified on Humanity Protocol.
+ * This uses a minimal ABI to call the isVerified function on the IVC contract.
+ */
+const vcContractABI = [
+  "function isVerified(address _user) view returns (bool)",
+];
+
+const vcContract = new ethers.Contract(
+  process.env.VC_CONTRACT_ADDRESS,
+  vcContractABI,
+  provider
+);
+
+export const checkVerification = async (subject_address) => {
+  try {
+    const isVerified = await vcContract.isVerified(subject_address);
+    console.log("isVerified:", isVerified);
+    return isVerified;
+  } catch (error) {
+    console.error("Error checking verification:", error);
     throw error;
   }
 };

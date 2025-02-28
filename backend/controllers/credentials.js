@@ -1,7 +1,8 @@
 import {
   issueCredential,
   markCredentialOnChain,
-} from "../services/humanityService.js";
+  checkVerification,
+} from "../services/humanityservices.js";
 
 export const issueCredentialController = async (req, res) => {
   try {
@@ -26,6 +27,20 @@ export const issueCredentialController = async (req, res) => {
     return res.json({ success: true, txHash });
   } catch (error) {
     console.error("Error in issueCredentialController: ", error);
+    return res.status(500).json({ error: error.message });
+  }
+};
+
+export const checkVerificationController = async (req, res) => {
+  try {
+    console.log("Inside checkVerificationController");
+    const { subject_address } = req.body;
+
+    // Check if the address is verified on Humanity Protocol
+    const verified = await checkVerification(subject_address);
+    return res.json({ verified });
+  } catch (error) {
+    console.error("Error in checkVerificationController: ", error);
     return res.status(500).json({ error: error.message });
   }
 };

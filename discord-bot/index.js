@@ -14,7 +14,7 @@ dotenv.config();
 // Create a new Discord client instance
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// Define the slash command for issuing a credential
+// Define slash commands for issuing credentials and checking verification
 const commands = [
   new SlashCommandBuilder()
     .setName("issuecredential")
@@ -31,6 +31,18 @@ const commands = [
       option
         .setName("credential")
         .setDescription("The type of credential (e.g., music_artist)")
+        .setRequired(true)
+    )
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("checkverification")
+    .setDescription(
+      "Check if the given address is verified on Humanity Protocol"
+    )
+    .addStringOption((option) =>
+      option
+        .setName("address")
+        .setDescription("The Ethereum address (or DID) to check")
         .setRequired(true)
     )
     .toJSON(),
@@ -67,13 +79,11 @@ client.on("interactionCreate", async (interaction) => {
     const credential = interaction.options.getString("credential");
 
     try {
-      // Call your backend API to issue the credential (or check if it's already issued)
+      // Call your backend API to issue the credential
       const response = await axios.post(process.env.BACKEND_URL, {
         subject_address: address,
         credentialType: credential,
       });
-
-      // Your backend returns an object with either a txHash (if issued) or a message if already issued.
       const result = response.data;
 
       if (result.txHash && result.txHash !== "Credential already issued") {
@@ -94,6 +104,36 @@ client.on("interactionCreate", async (interaction) => {
       console.error("Error issuing credential:", error);
       await interaction.editReply(
         "There was an error issuing the credential. Please try again later."
+      );
+    }
+  } else if (interaction.commandName === "checkverification") {
+    await interaction.deferReply();
+
+    const address = interaction.options.getString("address");
+
+    try {
+      // Use BACKEND_CHECK_URL if provided, otherwise default to localhost endpoint.
+      const backendCheckUrl =
+        process.env.BACKEND_CHECK_URL ||
+        "http://localhost:3000/api/check-verification";
+      const response = await axios.post(backendCheckUrl, {
+        subject_address: address,
+      });
+      const result = response.data;
+
+      if (result.verified) {
+        await interaction.editReply(
+          `The address ${address} is verified on Humanity Protocol.`
+        );
+      } else {
+        await interaction.editReply(
+          `The address ${address} is NOT verified on Humanity Protocol.`
+        );
+      }
+    } catch (error) {
+      console.error("Error checking verification:", error);
+      await interaction.editReply(
+        "There was an error checking the verification. Please try again later."
       );
     }
   }
