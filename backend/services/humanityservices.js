@@ -9,10 +9,12 @@ dotenv.config();
 // Import the contract ABI using require.
 const contractABI = require("../contractABI.json");
 
-// -- 1) In-memory credential cache (keyed by "address:credentialType") --
+// In-memory credential cache, keyed by "address:credentialType"
 const credentialCache = {};
 
-// Helper functions to get/set from the cache
+/**
+ * Helper functions to get/set from the cache
+ */
 function getCachedCredential(address, credentialType) {
   return credentialCache[`${address.toLowerCase()}:${credentialType}`];
 }
@@ -56,7 +58,7 @@ const musicContract = new ethers.Contract(
 
 /**
  * Issues a credential by calling Humanity's API and returns the response.
- * If successful, we store the returned credential JSON in our cache.
+ * If successful, we store the returned credential JSON in our in-memory cache.
  */
 export const issueCredential = async (subject_address, credentialType) => {
   try {
@@ -78,7 +80,7 @@ export const issueCredential = async (subject_address, credentialType) => {
     const resp = await response.json();
     console.log("Issue Credential Response:", resp);
 
-    // If successful, store the credential JSON so we can verify later by address + type
+    // If successful, store the credential JSON so we can verify or revoke later
     if (resp.message === "Credential issued successfully") {
       setCachedCredential(subject_address, credentialType, resp.credential);
     }
@@ -110,7 +112,9 @@ export const markCredentialOnChain = async (
     const tx = await musicContract.markCredentialIssued(
       subject_address,
       credentialKey,
-      { gasLimit: 300000 }
+      {
+        gasLimit: 300000,
+      }
     );
     await tx.wait();
     console.log("Transaction successful, hash:", tx.hash);
@@ -123,6 +127,7 @@ export const markCredentialOnChain = async (
 
 /**
  * Checks if the given address is verified on Humanity Protocol (on-chain check).
+ * Uses the IVC contract's isVerified function.
  */
 const vcContractABI = [
   "function isVerified(address _user) view returns (bool)",
@@ -139,37 +144,6 @@ export const checkVerification = async (subject_address) => {
     return isVerified;
   } catch (error) {
     console.error("Error checking verification:", error);
-    throw error;
-  }
-};
-
-/**
- * Revokes a credential on-chain.
- */
-export const revokeCredentialOnChain = async (
-  subject_address,
-  credentialType
-) => {
-  try {
-    const credentialKey = ethers.encodeBytes32String(credentialType);
-    const alreadyIssued = await musicContract.hasCredential(
-      subject_address,
-      credentialKey
-    );
-    if (!alreadyIssued) {
-      throw new Error("Credential not issued");
-    }
-
-    const tx = await musicContract.revokeCredential(
-      subject_address,
-      credentialKey,
-      { gasLimit: 300000 }
-    );
-    await tx.wait();
-    console.log("Credential revoked successfully, tx hash:", tx.hash);
-    return tx.hash;
-  } catch (error) {
-    console.error("Error revoking credential on-chain:", error);
     throw error;
   }
 };
@@ -193,14 +167,14 @@ export const getCredentialDetails = async (subject_address) => {
 };
 
 /**
- * Verifies a credential off-chain using Humanity’s API, but
- * automatically fetches the credential JSON from our cache by address+type.
+ * Verifies a credential off-chain using Humanity’s API,
+ * automatically fetched from our cache by address + credentialType.
  */
 export const verifyCredentialByAddress = async (
   subject_address,
   credentialType
 ) => {
-  // 1) Retrieve the credential JSON from our in-memory cache (or DB).
+  // Retrieve the stored credential JSON from the in-memory cache
   const storedCredential = getCachedCredential(subject_address, credentialType);
   if (!storedCredential) {
     throw new Error(
@@ -208,7 +182,7 @@ export const verifyCredentialByAddress = async (
     );
   }
 
-  // 2) Send that credential JSON to Humanity’s verify endpoint
+  // Send that credential JSON to Humanity’s verify endpoint
   try {
     const response = await fetch(
       "https://issuer.humanity.org/credentials/verify",
@@ -226,6 +200,85 @@ export const verifyCredentialByAddress = async (
     return data;
   } catch (error) {
     console.error("Error verifying credential:", error);
+    throw error;
+  }
+};
+
+/**
+ * Revoke a credential both on-chain and off-chain (Humanity).
+ */
+export const revokeCredentialAll = async (subject_address, credentialType) => {
+  try {
+    // 1) Retrieve the stored credential JSON from the cache (so we can get the credential ID)
+    const storedCredential = getCachedCredential(
+      subject_address,
+      credentialType
+    );
+    if (!storedCredential) {
+      throw new Error(
+        `No stored credential found for address=${subject_address}, type=${credentialType}`
+      );
+    }
+
+    // 2) Revoke On-Chain
+    const credentialKey = ethers.encodeBytes32String(credentialType);
+    const alreadyIssued = await musicContract.hasCredential(
+      subject_address,
+      credentialKey
+    );
+    if (!alreadyIssued) {
+      throw new Error("Credential not issued on-chain.");
+    }
+
+    const tx = await musicContract.revokeCredential(
+      subject_address,
+      credentialKey,
+      {
+        gasLimit: 300000,
+      }
+    );
+    await tx.wait();
+    console.log("On-chain credential revoked. TX Hash:", tx.hash);
+
+    // 3) Revoke from Humanity
+    const credentialId = storedCredential.id; // e.g., "urn:uuid:1234-..."
+    if (!credentialId) {
+      throw new Error("No credentialId found in stored credential JSON.");
+    }
+
+    const humanityResponse = await fetch(
+      "https://issuer.humanity.org/credentials/revoke",
+      {
+        method: "POST",
+        headers: {
+          "X-API-Token": process.env.HUMANITY_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ credentialId }),
+      }
+    );
+    const revokeResult = await humanityResponse.json();
+    console.log("Humanity revoke response:", revokeResult);
+
+    if (revokeResult.message !== "Credential revoked successfully") {
+      throw new Error("Failed to revoke credential from Humanity");
+    }
+
+    // 4) Remove from cache (optional) so it can't be verified again
+    delete credentialCache[
+      `${subject_address.toLowerCase()}:${credentialType}`
+    ];
+
+    // Return combined result
+    return {
+      txHash: tx.hash,
+      humanityRevokeMessage: revokeResult.message,
+    };
+  } catch (error) {
+    console.error(
+      "Error revoking credential (both on-chain and Humanity):",
+      error
+    );
     throw error;
   }
 };
