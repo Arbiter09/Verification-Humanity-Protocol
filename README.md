@@ -1,5 +1,3 @@
-Below is an updated README.md file that reflects all our new features—including revoking and verifying credentials off‑chain (via Humanity) and on‑chain, as well as retrieving credential counts. It also includes instructions for running both the backend (server.js) and the Discord bot (index.js).
-
 # Humanity Protocol Discord Bot
 
 ## 🔥 Overview
