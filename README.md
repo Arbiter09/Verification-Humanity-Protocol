@@ -272,7 +272,7 @@ The Solidity contract tracks issued credentials and allows:
 - **Issuing new credentials:** `markCredentialIssued()`
 - **Revoking credentials:** `revokeCredential()`
 
-📌 Contract Address: **`0x5d362a651DB6Ec1c1A70F4Bd79DF57927B352348`**
+📌 Contract Address: **`0xD0aB7c238D5A1f44525756b40C45056B2919B52E`**
 
 ---
 
