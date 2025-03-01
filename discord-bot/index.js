@@ -1,4 +1,3 @@
-// index.js
 import {
   Client,
   GatewayIntentBits,
@@ -14,7 +13,7 @@ dotenv.config();
 // Create a new Discord client instance
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-// Define slash commands for issuing, checking verification, revoking, and getting credential details
+// Define slash commands
 const commands = [
   new SlashCommandBuilder()
     .setName("issuecredential")
@@ -74,6 +73,22 @@ const commands = [
         .setRequired(true)
     )
     .toJSON(),
+  new SlashCommandBuilder()
+    .setName("verifycredential")
+    .setDescription("Verify a credential by address + type (no JSON needed)")
+    .addStringOption((option) =>
+      option
+        .setName("address")
+        .setDescription("The Ethereum address (or DID) to verify")
+        .setRequired(true)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("credential")
+        .setDescription("The credential type (e.g., music_artist)")
+        .setRequired(true)
+    )
+    .toJSON(),
 ];
 
 // Register slash commands with Discord
@@ -105,7 +120,9 @@ client.on("interactionCreate", async (interaction) => {
     const credential = interaction.options.getString("credential");
 
     try {
-      const response = await axios.post(process.env.BACKEND_URL, {
+      const backendUrl =
+        process.env.BACKEND_URL || "http://localhost:3000/api/issue-credential";
+      const response = await axios.post(backendUrl, {
         subject_address: address,
         credentialType: credential,
       });
@@ -196,7 +213,6 @@ client.on("interactionCreate", async (interaction) => {
         subject_address: address,
       });
       const result = response.data;
-      // result is expected to have { count, types }
       await interaction.editReply(
         `The address ${address} has ${
           result.count
@@ -206,6 +222,30 @@ client.on("interactionCreate", async (interaction) => {
       console.error("Error getting credential details:", error);
       await interaction.editReply(
         "There was an error getting the credential details. Please try again later."
+      );
+    }
+  } else if (interaction.commandName === "verifycredential") {
+    await interaction.deferReply();
+    const address = interaction.options.getString("address");
+    const credential = interaction.options.getString("credential");
+
+    try {
+      // Call the new /verify-credential endpoint with address + credentialType
+      const backendVerifyUrl =
+        process.env.BACKEND_VERIFY_URL ||
+        "http://localhost:3000/api/verify-credential";
+      const response = await axios.post(backendVerifyUrl, {
+        subject_address: address,
+        credentialType: credential,
+      });
+      const result = response.data;
+      await interaction.editReply(
+        `Verification result: ${JSON.stringify(result)}`
+      );
+    } catch (error) {
+      console.error("Error verifying credential:", error);
+      await interaction.editReply(
+        "There was an error verifying the credential. Please try again later."
       );
     }
   }

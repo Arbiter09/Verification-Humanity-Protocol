@@ -9,6 +9,19 @@ dotenv.config();
 // Import the contract ABI using require.
 const contractABI = require("../contractABI.json");
 
+// -- 1) In-memory credential cache (keyed by "address:credentialType") --
+const credentialCache = {};
+
+// Helper functions to get/set from the cache
+function getCachedCredential(address, credentialType) {
+  return credentialCache[`${address.toLowerCase()}:${credentialType}`];
+}
+
+function setCachedCredential(address, credentialType, credentialJson) {
+  credentialCache[`${address.toLowerCase()}:${credentialType}`] =
+    credentialJson;
+}
+
 // Set the chainId from your environment or default to 1942999413.
 const chainId = process.env.CHAIN_ID
   ? Number(process.env.CHAIN_ID)
@@ -43,6 +56,7 @@ const musicContract = new ethers.Contract(
 
 /**
  * Issues a credential by calling Humanity's API and returns the response.
+ * If successful, we store the returned credential JSON in our cache.
  */
 export const issueCredential = async (subject_address, credentialType) => {
   try {
@@ -57,14 +71,18 @@ export const issueCredential = async (subject_address, credentialType) => {
         body: JSON.stringify({
           subject_address,
           claims: { kyc: "passed" },
-          // Off-chain credentialType value (update as needed)
-          credentialType: "music_artistss",
+          credentialType, // Off-chain credential type
         }),
       }
     );
-    console.log("Raw Response:", response);
     const resp = await response.json();
-    console.log("Parsed Response:", resp);
+    console.log("Issue Credential Response:", resp);
+
+    // If successful, store the credential JSON so we can verify later by address + type
+    if (resp.message === "Credential issued successfully") {
+      setCachedCredential(subject_address, credentialType, resp.credential);
+    }
+
     return resp;
   } catch (error) {
     console.error("Error issuing credential:", error);
@@ -81,20 +99,13 @@ export const markCredentialOnChain = async (
 ) => {
   try {
     const credentialKey = ethers.encodeBytes32String(credentialType);
-    console.log("Converted credential key:", credentialKey);
-
     const alreadyIssued = await musicContract.hasCredential(
       subject_address,
       credentialKey
     );
-    console.log("hasCredential:", alreadyIssued);
     if (alreadyIssued) {
-      console.log(
-        `Credential "${credentialType}" already issued for ${subject_address}`
-      );
       return "Credential already issued";
     }
-    console.log("HUMANITY_RPC_URL:", process.env.HUMANITY_RPC_URL);
 
     const tx = await musicContract.markCredentialIssued(
       subject_address,
@@ -111,8 +122,7 @@ export const markCredentialOnChain = async (
 };
 
 /**
- * Checks if the given address is verified on Humanity Protocol.
- * Uses a minimal ABI to call the isVerified function on the IVC contract.
+ * Checks if the given address is verified on Humanity Protocol (on-chain check).
  */
 const vcContractABI = [
   "function isVerified(address _user) view returns (bool)",
@@ -126,7 +136,6 @@ const vcContract = new ethers.Contract(
 export const checkVerification = async (subject_address) => {
   try {
     const isVerified = await vcContract.isVerified(subject_address);
-    console.log("isVerified:", isVerified);
     return isVerified;
   } catch (error) {
     console.error("Error checking verification:", error);
@@ -143,8 +152,6 @@ export const revokeCredentialOnChain = async (
 ) => {
   try {
     const credentialKey = ethers.encodeBytes32String(credentialType);
-    console.log("Converted credential key:", credentialKey);
-
     const alreadyIssued = await musicContract.hasCredential(
       subject_address,
       credentialKey
@@ -169,7 +176,6 @@ export const revokeCredentialOnChain = async (
 
 /**
  * Gets the total number of credentials and the list of credential types for an address.
- * Converts each stored bytes32 credential back to a string.
  */
 export const getCredentialDetails = async (subject_address) => {
   try {
@@ -177,13 +183,49 @@ export const getCredentialDetails = async (subject_address) => {
     const typesBytes32 = await musicContract.getCredentialTypes(
       subject_address
     );
-    // In ethers v6, use ethers.parseBytes32String instead of ethers.utils.parseBytes32String.
+    // In ethers v6, use ethers.decodeBytes32String instead of parseBytes32String.
     const types = typesBytes32.map((b) => ethers.decodeBytes32String(b));
-    console.log("Credential count for", subject_address, ":", count.toString());
-    console.log("Credential types for", subject_address, ":", types);
     return { count: count.toString(), types };
   } catch (error) {
     console.error("Error getting credential details:", error);
+    throw error;
+  }
+};
+
+/**
+ * Verifies a credential off-chain using Humanity’s API, but
+ * automatically fetches the credential JSON from our cache by address+type.
+ */
+export const verifyCredentialByAddress = async (
+  subject_address,
+  credentialType
+) => {
+  // 1) Retrieve the credential JSON from our in-memory cache (or DB).
+  const storedCredential = getCachedCredential(subject_address, credentialType);
+  if (!storedCredential) {
+    throw new Error(
+      `No credential JSON found for address=${subject_address}, type=${credentialType}`
+    );
+  }
+
+  // 2) Send that credential JSON to Humanity’s verify endpoint
+  try {
+    const response = await fetch(
+      "https://issuer.humanity.org/credentials/verify",
+      {
+        method: "POST",
+        headers: {
+          "X-API-Token": process.env.HUMANITY_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ credential: storedCredential }),
+      }
+    );
+    const data = await response.json();
+    console.log("Verification result:", data);
+    return data;
+  } catch (error) {
+    console.error("Error verifying credential:", error);
     throw error;
   }
 };
