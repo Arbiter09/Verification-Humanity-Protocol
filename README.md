@@ -1,6 +1,5 @@
 Below is an updated README.md file that reflects all our new features—including revoking and verifying credentials off‑chain (via Humanity) and on‑chain, as well as retrieving credential counts. It also includes instructions for running both the backend (server.js) and the Discord bot (index.js).
 
-````markdown
 # Humanity Protocol Discord Bot
 
 ## 🔥 Overview
@@ -74,7 +73,7 @@ In Web3, managing **trustless credentials** is crucial. Instead of manually hand
 git clone https://github.com/Arbiter09/Verification-Humanity-Protocol.git
 cd Verification-Humanity-Protocol
 ```
-````
+
 
 ### 2️⃣ **Install Dependencies**
 
